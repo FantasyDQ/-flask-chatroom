@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>阅后即焚</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.3.2/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/emojionearea/3.4.2/emojionearea.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/emojionearea/3.4.2/emojionearea.min.css">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        #chat-box {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: #fff;
+        }
+
+        #message-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        #message {
+            flex: 1;
+            min-width: 0;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        #emoji-button {
+            margin-left: 10px;
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        /* Disable shadow effect on emoji input */
+        .emojionearea-editor {
+            box-shadow: none !important;
+        }
+
+        #chat-box img,
+        #message img {
+            max-width: 100%;
+            max-height: 150px;
+            margin-top: 5px;
+            border-radius: 5px;
+            cursor: pointer; /* Add cursor pointer for images */
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: #fff;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        /* Styling for enlarged image */
+        #enlarged-image {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            background-color: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+        }
+
+        #enlarged-image img {
+            max-width: 90%;
+            max-height: 90%;
+            display: block;
+            margin: 0 auto;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>阅后即焚</h1>
+
+    <div id="chat-box">
+        <!-- Messages will be displayed here -->
+    </div>
+
+    <div id="enlarged-image">
+        <img id="enlarged-img" src="" alt="Enlarged Image">
+    </div>
+
+    <form id="message-form">
+        <label for="username">昵称 (选填):</label>
+        <input type="text" id="username" name="username"><br><br>
+
+        <div id="message-container">
+            <div id="message" contenteditable="true" placeholder="输入消息..."></div>
+            <button type="button" id="emoji-button">Version2.0</button>
+        </div>
+
+        <button type="submit">发送</button>
+    </form>
+
+    <script>
+        $(document).ready(function() {
+            var socket = io();
+            var currentNickname = null;
+            var nicknames = [
+ '别龙马',
+ '管埋员', '按键伤人','哈尔的移动充电宝',
+ '作业遍布全球', '农夫三拳有点疼','老坛杉菜',
+  '活着太饿了',
+  '扁桃体永不发言',
+  '低保与老头皆失',
+  '村里在逃翠花', '和我说话请投币',
+  '玉米地里吃过亏',
+  '沙漠一只雕','昵称过于强大无法显示',
+  '我妈妈说名字太长会有傻子跟着念', '隐形的鸡翅膀', '我睡觉的时候不困',
+  '国家特级不保护废物',
+ '有啤酒肚的仙女', '加里敦大学学生',
+   '怎么吃不饱', '百变少女猪刚鬣',
+  '我我我还能吃',
+ '日系少女八嘎酱', '肖申克的舅母',
+   '人间吃苦机器',
+  '暗黑少女宋小宝',
+   '我裂幵了', '贫民窟形象代表人', '是秃子终会发光'
+];
+            // Initialize emoji picker
+            var emojiInput = $('#message').emojioneArea({
+                pickerPosition: 'bottom',
+                tonesStyle: 'bullet',
+                autocomplete: false,
+                standalone: true
+            });
+
+            // Delay 0.3 seconds then automatically click emoji button
+            setTimeout(function() {
+                $('#emoji-button').trigger('click'); // Trigger click event
+            }, 300);
+
+            // Handle form submission
+            $('#message-form').submit(function(event) {
+                event.preventDefault();
+                sendMessage();
+            });
+
+            // Listen for keydown event on message input
+            $('#message').on('keydown', function(event) {
+                if (event.which === 13 && !event.shiftKey) {
+                    event.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            function sendMessage() {
+                var username = $('#username').val().trim();
+                var message = $('#message').html();
+
+                if (!username && !currentNickname) {
+                    currentNickname = nicknames[Math.floor(Math.random() * nicknames.length)];
+                } else if (username) {
+                    currentNickname = username;
+                }
+
+                if (message) {
+                    socket.emit('send_message', {'username': currentNickname, 'message': message});
+                    $('#message').empty();
+                } else {
+                    alert('请填写消息内容');
+                }
+            }
+
+            // Show/hide message input and emoji picker
+            $('#emoji-button').click(function() {
+                $('#message').toggle();
+                emojiInput.emojioneArea('toggle');
+                if ($('#message').is(':visible')) {
+                    emojiInput.removeClass('has-placeholder');
+                }
+            });
+
+            // Handle image enlargement on double click
+            $('#chat-box').on('dblclick', 'img', function() {
+                var imgSrc = $(this).attr('src');
+                $('#enlarged-img').attr('src', imgSrc);
+                $('#enlarged-image').fadeIn();
+            });
+
+            // Hide enlarged image on click outside of it
+            $(document).on('click', function(event) {
+                if (!$(event.target).closest('#enlarged-image').length) {
+                    $('#enlarged-image').fadeOut();
+                }
+            });
+
+            // Listen for paste events on the message contenteditable div
+            $('#message').on('paste', function(event) {
+                var clipboardData = event.originalEvent.clipboardData;
+
+                if (clipboardData && clipboardData.items) {
+                    var imageItem = Array.from(clipboardData.items).find(item => item.type.indexOf('image') !== -1);
+
+                    if (imageItem) {
+                        event.preventDefault();
+                        var file = imageItem.getAsFile();
+                        var reader = new FileReader();
+
+                        reader.onload = function(event) {
+                            var imgSrc = event.target.result;
+                            var imgElement = '<img src="' + imgSrc + '"/><br>';
+                            document.execCommand('insertHTML', false, imgElement);
+                        };
+
+                        reader.readAsDataURL(file);
+                    }
+                }
+            });
+
+            // Socket event listener for receiving messages
+            socket.on('receive_message', function(data) {
+                var chatBox = $('#chat-box');
+                var messageElement = '<p><strong>' + data.username + ':</strong> ' + data.message + '</p>';
+                chatBox.append(messageElement);
+
+                // Parse emoji
+                emojiInput[0].emojioneArea.setText('');
+                chatBox.scrollTop(chatBox.prop("scrollHeight"));
+            });
+        });
+    </script>
+</body>
+</html>
